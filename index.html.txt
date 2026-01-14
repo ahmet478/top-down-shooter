@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Top Down Shooter</title>
+<style>
+body {
+    margin: 0;
+    background: #111;
+    overflow: hidden;
+    touch-action: none;
+}
+canvas {
+    background: #222;
+    display: block;
+    margin: auto;
+}
+
+/* HUD */
+#hud {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-family: Arial;
+    font-size: 14px;
+}
+
+/* MOBİL KONTROLLER */
+.joystick {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    width: 120px;
+    height: 120px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 50%;
+}
+.stick {
+    position: absolute;
+    top: 40px;
+    left: 40px;
+    width: 40px;
+    height: 40px;
+    background: rgba(255,255,255,0.4);
+    border-radius: 50%;
+}
+
+.btn {
+    position: fixed;
+    right: 20px;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    font-size: 14px;
+    border: none;
+}
+#fire { bottom: 30px; }
+#dash { bottom: 120px; }
+#reload { bottom: 210px; }
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+Can: <span id="can">100</span><br>
+Mermi: <span id="mermi">10</span><br>
+Skor: <span id="skor">0</span>
+</div>
+
+<canvas id="oyun" width="900" height="550"></canvas>
+
+<!-- MOBİL -->
+<div class="joystick" id="joy">
+    <div class="stick" id="stick"></div>
+</div>
+<button class="btn" id="fire">ATEŞ</button>
+<button class="btn" id="dash">DASH</button>
+<button class="btn" id="reload">R</button>
+
+<script>
+const canvas = document.getElementById("oyun");
+const ctx = canvas.getContext("2d");
+
+let oyuncu = { x: 450, y: 275, r: 15, can: 100, hiz: 3, dashCd: 0 };
+let mermiler = [];
+let dusmanlar = [];
+let boss = null;
+
+let skor = 0;
+let maxMermi = 10;
+let mermi = maxMermi;
+let reloading = false;
+let reloadT = 0;
+
+let joyDX = 0, joyDY = 0;
+
+// ---------- MOBİL JOYSTICK ----------
+const joy = document.getElementById("joy");
+const stick = document.getElementById("stick");
+let joyActive = false;
+
+joy.addEventListener("touchstart", e => {
+    joyActive = true;
+});
+joy.addEventListener("touchmove", e => {
+    if (!joyActive) return;
+    const r = joy.getBoundingClientRect();
+    const t = e.touches[0];
+    let dx = t.clientX - (r.left + 60);
+    let dy = t.clientY - (r.top + 60);
+    const d = Math.hypot(dx, dy);
+    if (d > 40) { dx *= 40/d; dy *= 40/d; }
+    stick.style.left = 40 + dx + "px";
+    stick.style.top = 40 + dy + "px";
+    joyDX = dx / 40;
+    joyDY = dy / 40;
+});
+joy.addEventListener("touchend", e => {
+    joyActive = false;
+    joyDX = joyDY = 0;
+    stick.style.left = "40px";
+    stick.style.top = "40px";
+});
+
+// ---------- BUTONLAR ----------
+document.getElementById("fire").ontouchstart = shoot;
+document.getElementById("dash").ontouchstart = dash;
+document.getElementById("reload").ontouchstart = reload;
+
+// PC
+canvas.addEventListener("mousedown", e => shoot(e));
+document.addEventListener("keydown", e => {
+    if (e.key === " ") dash();
+    if (e.key.toLowerCase() === "r") reload();
+});
+
+// ---------- SHOOT ----------
+function shoot(e) {
+    if (reloading || mermi <= 0) return;
+    mermi--;
+    document.getElementById("mermi").innerText = mermi;
+
+    let a = 0;
+    if (e && e.clientX) {
+        const r = canvas.getBoundingClientRect();
+        a = Math.atan2(e.clientY - r.top - oyuncu.y, e.clientX - r.left - oyuncu.x);
+    } else {
+        a = 0;
+    }
+
+    mermiler.push({
+        x: oyuncu.x,
+        y: oyuncu.y,
+        vx: Math.cos(a) * 8,
+        vy: Math.sin(a) * 8,
+        r: 4
+    });
+}
+
+// ---------- DASH ----------
+function dash() {
+    if (oyuncu.dashCd > 0) return;
+    oyuncu.x += joyDX * 80;
+    oyuncu.y += joyDY * 80;
+    oyuncu.dashCd = 60;
+}
+
+// ---------- RELOAD ----------
+function reload() {
+    if (reloading || mermi === maxMermi) return;
+    reloading = true;
+    reloadT = 60;
+}
+
+// ---------- DÜŞMAN ----------
+function dusmanOlustur() {
+    dusmanlar.push({
+        x: Math.random()*900,
+        y: Math.random()*550,
+        r: 18,
+        hiz: 1.5,
+        can: 1
+    });
+}
+
+// ---------- OYUN ----------
+function dongu() {
+    ctx.clearRect(0,0,900,550);
+
+    if (oyuncu.dashCd > 0) oyuncu.dashCd--;
+
+    if (reloading) {
+        reloadT--;
+        if (reloadT <= 0) {
+            reloading = false;
+            mermi = maxMermi;
+            document.getElementById("mermi").innerText = mermi;
+        }
+    }
+
+    oyuncu.x += joyDX * oyuncu.hiz;
+    oyuncu.y += joyDY * oyuncu.hiz;
+
+    // OYUNCU
+    ctx.fillStyle = "cyan";
+    ctx.beginPath();
+    ctx.arc(oyuncu.x, oyuncu.y, oyuncu.r, 0, Math.PI*2);
+    ctx.fill();
+
+    // MERMİ
+    mermiler.forEach((m,i)=>{
+        m.x += m.vx;
+        m.y += m.vy;
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(m.x,m.y,m.r,0,Math.PI*2);
+        ctx.fill();
+    });
+
+    // DÜŞMAN
+    dusmanlar.forEach((d,di)=>{
+        const a = Math.atan2(oyuncu.y-d.y, oyuncu.x-d.x);
+        d.x += Math.cos(a)*d.hiz;
+        d.y += Math.sin(a)*d.hiz;
+
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(d.x,d.y,d.r,0,Math.PI*2);
+        ctx.fill();
+
+        if (Math.hypot(d.x-oyuncu.x,d.y-oyuncu.y)<d.r+oyuncu.r){
+            oyuncu.can -= 10;
+            document.getElementById("can").innerText = oyuncu.can;
+            dusmanlar.splice(di,1);
+        }
+
+        mermiler.forEach((m,mi)=>{
+            if (Math.hypot(d.x-m.x,d.y-m.y)<d.r+m.r){
+                dusmanlar.splice(di,1);
+                mermiler.splice(mi,1);
+                skor++;
+                document.getElementById("skor").innerText = skor;
+            }
+        });
+    });
+
+    requestAnimationFrame(dongu);
+}
+
+setInterval(dusmanOlustur, 1200);
+dongu();
+</script>
+</body>
+</html>
